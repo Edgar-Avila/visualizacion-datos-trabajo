@@ -1,0 +1,44 @@
+{
+  "filas_unidas_antes_dedup": 12554866,
+  "filas_clientes_finales": 11782755,
+  "filas_agregado_finales": 74485,
+  "nulos_obligatorios": 0,
+  "negativos_finales": 18783,
+  "ubigeo_invalido": 0,
+  "duplicados_correlativo_periodo": 697626,
+  "filas_rechazadas": 0,
+  "fuentes_duplicadas": [
+    {
+      "periodo": 202402,
+      "n_fuentes": 2,
+      "archivos": "ELPU_2024-02.zip, ELPU_2024-06.zip",
+      "archivo_conservado": "ELPU_2024-02.zip"
+    },
+    {
+      "periodo": 202506,
+      "n_fuentes": 2,
+      "archivos": "ELPU_2025-02.zip, ELPU_2025-06.zip",
+      "archivo_conservado": "ELPU_2025-06.zip"
+    }
+  ],
+  "tarifas_finales": {
+    "BT5B": 11733318,
+    "BT5D": 68363,
+    "MT4": 22569,
+    "BT6": 11348,
+    "MT2": 11205,
+    "MT3": 7412,
+    "BT4": 1665,
+    "BT3": 666,
+    "BT5A": 569,
+    "BT2": 125
+  },
+  "archivos_con_error": [],
+  "periodos_con_codigo_correlativo": "34/34",
+  "codigos_con_multiples_ubigeos": 261109,
+  "filas_ubigeo_fuera_puno": 66,
+  "ubigeos_con_multiples_provincias": 37,
+  "filas_geo_incoherente": 112269,
+  "fecha_alta_pre1950": 21998,
+  "fecha_alta_1908_09_27": 20690
+}

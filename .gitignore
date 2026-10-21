@@ -2,4 +2,4 @@
 preprocesamiento/bronze/
 
 # Datos procesados (capa silver) - regenerables con 02_silver.ipynb
-preprocesamiento/silver/
+# preprocesamiento/silver/
