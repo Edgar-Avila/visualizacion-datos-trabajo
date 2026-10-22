@@ -1,0 +1,10 @@
+# Paquetes usados por los tres notebooks (instalar en el entorno del kernel de VS Code)
+duckdb
+pandas
+numpy
+plotly
+scipy
+scikit-learn
+statsmodels
+ipywidgets
+ipykernel
