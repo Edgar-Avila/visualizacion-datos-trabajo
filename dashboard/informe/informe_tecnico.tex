@@ -1,0 +1,313 @@
+\documentclass[11pt,a4paper]{article}
+\newcommand{\integrantes}{Isaac, Edgar y Tania}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx,booktabs,longtable,tabularx,array,listings,xcolor,hyperref,tikz,float}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\hypersetup{colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black}
+\definecolor{codebg}{HTML}{F4F7F8}
+\definecolor{codeblue}{HTML}{176B87}
+\lstset{language=Python,basicstyle=\ttfamily\scriptsize,numberstyle=\tiny\color{gray},numbers=left,stepnumber=1,numbersep=7pt,backgroundcolor=\color{codebg},frame=single,rulecolor=\color{black!15},breaklines=true,breakatwhitespace=false,showstringspaces=false,columns=fullflexible,keepspaces=true,tabsize=4,captionpos=b,extendedchars=true}
+\newcommand{\capturadashboard}[3]{\begin{figure}[H]\centering\IfFileExists{#1}{\includegraphics[width=\textwidth]{#1}}{\fbox{\parbox[c][4cm][c]{0.92\textwidth}{\centering Captura de pantalla pendiente: \texttt{\detokenize{#1}}}}}\caption{#2}\label{#3}\end{figure}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\title{Informe técnico del dashboard de consumo eléctrico de Electro Puno S.A.A.}
+\author{\integrantes\\Maestría -- Universidad Nacional del Altiplano}
+\date{\today}
+\begin{document}
+\maketitle
+\begin{center}\large Curso: Visualización de datos\end{center}
+\vspace{1em}
+\begin{abstract}
+Este informe documenta el dashboard interactivo desarrollado para explorar el consumo eléctrico, los suministros-mes y la facturación de Electro Puno S.A.A. entre enero de 2023 y agosto de 2026. La aplicación organiza el análisis en seis pestañas y comparte filtros temporales, territoriales y tarifarios. Su carga combina registros de detalle de 2023--2025 con datos agregados de 2026; DuckDB realiza la agregación inicial directamente sobre Parquet y el resultado compacto queda cacheado en memoria. El mapa vincula distritos mediante UBIGEO y, cuando falta geometría, intenta una correspondencia por nombres normalizados. Las vistas incluyen indicadores, series temporales, comparaciones territoriales y tarifarias, y distribuciones calculadas sobre una muestra reproducible del detalle. El documento describe las fuentes, los archivos, las decisiones de visualización y los límites interpretativos que deben acompañar una exposición ejecutiva. En particular, un suministro-mes no equivale a un cliente único; dos meses carecen de archivo; 2026 no tiene observaciones individuales; y los Parquet no conservan etiquetas K-means. Por ello, el dashboard apoya la exploración y priorización, pero no reemplaza la validación de calidad ni el análisis operativo de origen.
+\end{abstract}
+\noindent\textbf{Palabras clave:} Electro Puno, consumo eléctrico, dashboard, Dash, DuckDB, visualización territorial.
+\tableofcontents
+\listoffigures
+\clearpage
+
+\section{Introducción y objetivo}
+La organización necesita examinar en conjunto la evolución mensual, las diferencias territoriales, las tarifas y la facturación. El dashboard presenta esas dimensiones en una interfaz local con filtros compartidos y permite pasar de una lectura agregada a la inspección por distrito. Está dirigido a quienes preparan análisis y decisiones de cartera, seguimiento comercial y priorización territorial en Electro Puno. Su propósito es facilitar preguntas descriptivas y comparativas; no estima causalidad ni identifica clientes longitudinalmente.
+
+\section{Arquitectura general}
+\begin{figure}[H]\centering
+\begin{tikzpicture}[node distance=1.1cm and 1.3cm,box/.style={draw,rounded corners,fill=codebg,align=center,text width=2.65cm,minimum height=1cm},arr/.style={-{Latex},thick}]
+\node[box] (src) {Parquet\texttt{silver/} + GeoJSON};
+\node[box,right=of src] (loader) {\texttt{data\_loader.py}\\lectura y normalización};
+\node[box,right=of loader] (db) {DuckDB + pandas\\cubo agregado y muestra};
+\node[box,below=of db] (calc) {\texttt{calculos.py}\\indicadores y series};
+\node[box,left=of calc] (cb) {Callbacks Dash\\filtros y figuras Plotly};
+\node[box,left=of cb] (ui) {Componentes Dash\\tarjetas, pestañas, tabla};
+\node[box,below=of cb] (web) {Navegador\\interacción local};
+\draw[arr](src)--(loader);\draw[arr](loader)--(db);\draw[arr](db)--(calc);\draw[arr](calc)--(cb);\draw[arr](db)|-(cb);\draw[arr](cb)--(ui);\draw[arr](ui)--(web);
+\end{tikzpicture}
+\caption{Flujo de datos y componentes del dashboard.}\label{fig:arquitectura}
+\end{figure}
+El cargador valida los archivos requeridos, ejecuta una agregación SQL sobre los Parquet, prepara una muestra determinista y enriquece el cubo con el GeoJSON. Dash mantiene los datos cargados durante el proceso; el callback principal vuelve a filtrar el cubo y construye las figuras al cambiar controles. El detalle masivo no se envía completo a los gráficos.
+
+\section{Herramientas y tecnologías}
+Las versiones instaladas se consultaron en el entorno virtual del dashboard el \today. Las restricciones declaradas en \texttt{requirements.txt} son rangos, por lo que la versión exacta se refiere a ese entorno local.
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{l l Y Y}\toprule
+Herramienta & Versión & Uso & Motivo en la aplicación\\\midrule
+Python & 3.14.8 & Lenguaje de la app y transformaciones & Integra carga, callbacks y visualización.\\
+Dash & 3.4.0 & Interfaz reactiva y callbacks & Pestañas y filtros sincronizados en navegador.\\
+Plotly & 5.24.1 & Gráficos interactivos & Figuras estadísticas y geográficas.\\
+dash-bootstrap-components & 2.0.4 & Contenedores, filas, tarjetas y tema & Estructura adaptable con componentes Bootstrap.\\
+pandas & 3.1.0 & Filtrado, agrupación y tablas & Operaciones sobre el cubo compacto y la muestra.\\
+DuckDB & 2.0.0 & Lectura y agregación SQL de Parquet & Agrega millones de filas sin materializar todo el detalle en gráficos.\\
+PyArrow & 26.0.0 & Soporte de lectura Parquet & Formato columnar consumido por pandas.\\
+comm & 0.2.3 & Dependencia fijada en requirements & Dash se acota a la serie 3 por compatibilidad con `comm` en este entorno.\\
+GeoJSON & Archivo del proyecto & Geometrías distritales & Representa polígonos sin teselas externas.\\
+\bottomrule\end{tabularx}\caption{Tecnologías observadas en el entorno del proyecto.}\label{tab:tecnologias}
+\end{table}
+El archivo de dependencias fija Dash a la serie 3 (`dash>=2.17,<4`) y limita Plotly a la serie 5 (`plotly>=5.22,<6`); el README registra la fijación de Dash para evitar incompatibilidades con `comm` en el entorno del proyecto.
+
+\section{Fuentes de datos consumidas}
+Las rutas son relativas a la raíz del repositorio. Las columnas comunes de los Parquet incluyen \texttt{ubigeo}, departamento, provincia, distrito, tarifa, periodo, consumo y facturación; el archivo de detalle incorpora además `codigo\_cliente`, `estado\_cliente`, fechas, `clientes`, granularidad y archivo fuente.
+\begin{longtable}{p{3.5cm}r p{2.8cm}p{3.4cm}p{4.4cm}}
+\caption{Entradas directas y alcance.}\label{tab:fuentes}\\
+\toprule Fuente & Filas & Periodo y nivel & Variables clave & Limitaciones relevantes\\\midrule\endfirsthead
+\toprule Fuente & Filas & Periodo y nivel & Variables clave & Limitaciones relevantes\\\midrule\endhead
+\texttt{preprocesamiento/silver/consumo\_clientes.parquet} & 11.782.755 & 202301--202512; 34 meses con datos; suministro-mes & UBIGEO, tarifa, periodo, consumo\_kwh, facturacion\_soles & `codigo_cliente` es correlativo y se reinicia; no enlaza personas/suministros entre meses.\\
+\texttt{preprocesamiento/silver/consumo\_agregado.parquet} & 74.485 & 202601--202608; agregado por grupo & Las anteriores y `clientes` & `clientes` aporta el conteo representado por fila; no permite distribuciones individuales para 2026.\\
+\texttt{preprocesamiento/silver/resumen\_mensual.parquet} & 42 & 202301--202608; resumen mensual & periodo, granularidad, n\_suministros, consumo y facturación total/promedio & La aplicación lo carga, aunque el callback principal trabaja sobre el cubo creado a partir de las otras dos tablas.\\
+\texttt{analisis/peru\_distrital\_simple.geojson} & 1.834 geometrías & Distritos & `properties.IDDIST`, `NOMBPROV`, `NOMBDIST` y coordenadas & El UBIGEO 211105 sigue sin polígono después del respaldo por nombres.\\
+\bottomrule\end{longtable}
+La ventana temporal equivale a 42 meses observados de los 44 del intervalo calendario: junio de 2024 y febrero de 2025 no tienen archivo y se conservan como faltantes, no como consumo igual a cero. Los registros negativos se mantienen como posibles ajustes o créditos.
+
+\section{Estructura de archivos y responsabilidades}
+\begin{table}[H]\small\centering
+\begin{tabularx}{\textwidth}{p{4.1cm}Y Y}\toprule Ruta & Responsabilidad y funciones & Dependencias\\\midrule
+\texttt{dashboard/app.py} & Interfaz de seis pestañas; callbacks \texttt{toggle\_filtros}, \texttt{opciones\_distrito}, \texttt{reset\_filters}, \texttt{click\_mapa}, \texttt{actualizar}, \texttt{descargar}; auxiliares de estilo y formato. & Importa \texttt{cargar\_datos}, \texttt{indicadores}, \texttt{serie\_mensual}; Dash, Plotly, pandas, dbc.\\
+\texttt{dashboard/data\_loader.py} & \texttt{normalizar} limpia texto para cruces; \texttt{cargar\_datos} valida, carga, agrega, muestrea, enlaza geometrías y cachea. & DuckDB, pandas, archivos Parquet y GeoJSON.\\
+\texttt{dashboard/calculos.py} & \texttt{filtrar} aplica dimensiones; \texttt{indicadores} resume magnitudes; \texttt{serie\_mensual} agrupa métricas por mes y granularidad. & pandas y cubo preparado.\\
+\texttt{dashboard/assets/styles.css} & Estilos visuales de encabezado, tarjetas, filtros, paneles, insights y pie. & Cargado por convención de Dash.\\
+\texttt{dashboard/requirements.txt} & Rangos de versiones de siete dependencias directas. & Instalador de paquetes Python.\\
+\texttt{dashboard/README.md} & Instalación, ejecución, vistas y decisiones/limitaciones declaradas. & Documentación de uso.\\
+\bottomrule\end{tabularx}\caption{Archivos mantenidos en la carpeta del dashboard.}\label{tab:archivos}
+\end{table}
+El árbol, omitiendo el entorno virtual local, es: \texttt{dashboard/\{app.py,calculos.py,data\_loader.py,README.md,requirements.txt,assets/styles.css\}}. El informe y sus figuras se guardan en \texttt{dashboard/informe/}.
+
+\section{Código más importante}
+Los fragmentos siguientes son transcripciones literales del archivo indicado. Se omiten líneas ajenas al punto explicado, sin alterar las líneas reproducidas.
+
+\subsection{Carga, verificación y cacheo}
+\begin{lstlisting}[caption={dashboard/data\_loader.py — cargar\_datos, cache y archivos requeridos}]
+@lru_cache(maxsize=1)
+def cargar_datos():
+    """Lee los Parquet una vez y genera cubos compactos para las vistas."""
+    faltan = [str(p) for p in [SILVER / "consumo_clientes.parquet",
+                               SILVER / "consumo_agregado.parquet",
+                               SILVER / "resumen_mensual.parquet", GEO_PATH] if not p.exists()]
+    if faltan:
+        raise FileNotFoundError("No se encontraron los archivos requeridos: " + ", ".join(faltan))
+\end{lstlisting}
+La caché evita releer archivos en cada interacción. La validación produce un mensaje visible cuando falta una fuente; la aplicación captura ese error durante su inicialización.
+
+\subsection{Agregación SQL sobre Parquet}
+\begin{lstlisting}[caption={dashboard/data\_loader.py — cargar\_datos, cubo DuckDB}]
+    cubo = con.execute(f"""
+        WITH todo AS (
+          SELECT periodo, ubigeo, departamento, provincia, distrito, tarifa,
+                 'detalle' granularidad, 1::BIGINT n,
+                 consumo_kwh, facturacion_soles
+          FROM read_parquet('{cli}')
+          UNION ALL
+          SELECT periodo, ubigeo, departamento, provincia, distrito, tarifa,
+                 'agregado' granularidad, clientes::BIGINT n,
+                 consumo_kwh, facturacion_soles
+          FROM read_parquet('{agr}')
+        )
+        SELECT periodo, periodo//100 anio, periodo%100 mes, ubigeo,
+               departamento, provincia, distrito, tarifa, granularidad,
+               SUM(n)::BIGINT suministros, SUM(consumo_kwh) consumo_kwh,
+               SUM(facturacion_soles) facturacion_soles,
+               SUM(CASE WHEN consumo_kwh=0 THEN n ELSE 0 END)::BIGINT suministros_cero,
+               COUNT(*) filas
+        FROM todo GROUP BY ALL
+    """).df()
+\end{lstlisting}
+El conteo de detalle asigna uno por registro y el agregado usa el campo `clientes`. El grupo final conserva periodo, territorio, tarifa y granularidad, lo que permite combinar años sin fingir observaciones individuales.
+
+\subsection{Muestreo reproducible}
+\begin{lstlisting}[caption={dashboard/data\_loader.py — cargar\_datos, muestra}]
+    muestra = con.execute(f"""
+      SELECT periodo, ubigeo, tarifa, provincia, consumo_kwh, facturacion_soles
+      FROM read_parquet('{cli}') USING SAMPLE reservoir(60000 ROWS) REPEATABLE (37)
+    """).df()
+\end{lstlisting}
+La muestra se extrae solo de la tabla de detalle y usa una semilla fija. El límite de 60.000 filas da una base de forma reproducible; no convierte las estimaciones visuales en totales exactos.
+
+\subsection{Cruce UBIGEO y respaldo por nombres}
+\begin{lstlisting}[caption={dashboard/data\_loader.py — cargar\_datos, cruce espacial}]
+    cubo["geo_id"] = cubo.ubigeo
+    geo_ids = {str(ft.get("properties", {}).get("IDDIST", "")).zfill(6) for ft in geo["features"]}
+    # Fallback por nombres normalizados para los UBIGEO no presentes en el GeoJSON.
+    cubo["geo_id"] = cubo.apply(
+        lambda r: geo_names.get((normalizar(r.provincia), normalizar(r.distrito)), r.geo_id)
+        if r.geo_id not in geo_ids
+        else r.geo_id, axis=1)
+\end{lstlisting}
+El código del distrito es la llave principal. La normalización elimina tildes y consolida espacios para intentar rescatar códigos sin geometría; el registro 211105 permanece fuera del mapa.
+
+\subsection{Filtros y control de tabla vacía}
+\begin{lstlisting}[caption={dashboard/app.py — actualizar, filtros y salida sin registros}]
+        inicio, fin = sorted([desde, hasta]) if desde and hasta else (periodos[0], periodos[-1])
+        d = CUBO[CUBO.periodo_txt.between(inicio, fin)]
+        if provs: d = d[d.provincia.isin(provs)]
+        seleccion_d = list(dists or [])
+        if clicked and clicked not in seleccion_d: seleccion_d.append(clicked)
+        if seleccion_d: d = d[d.geo_id.isin(seleccion_d)]
+        if tars: d = d[d.tarifa.isin(tars)]
+        if d.empty:
+            return ("—", "—", "—", "—", "—", "Sin registros",
+                    *[EMPTY for _ in range(7)], "No hay territorios en el filtro.",
+                    *[EMPTY for _ in range(5)], "Sin datos.", "No hay registros con estos filtros.", [], [])
+\end{lstlisting}
+Los controles temporales, provinciales, distritales y tarifarios se aplican al cubo. La selección del mapa se une al filtro distrital. Si no hay filas, los indicadores y figuras muestran un estado vacío en lugar de provocar un fallo.
+
+\subsection{Indicadores y valores nulos}
+\begin{lstlisting}[caption={dashboard/calculos.py — indicadores, caso vacío}]
+def indicadores(d):
+    if d.empty:
+        return {"consumo": 0, "clientes": 0, "promedio": 0, "monto": 0, "provincia": "—", "distrito": "—"}
+    consumo, clientes, monto = d.consumo_kwh.sum(), d.suministros.sum(), d.facturacion_soles.sum()
+    loc = d.groupby("nombre_geo", observed=True).consumo_kwh.sum()
+    prov = d.groupby("provincia", observed=True).consumo_kwh.sum()
+    return {"consumo": consumo, "clientes": clientes, "promedio": consumo / clientes if clientes else 0,
+            "monto": monto, "provincia": prov.idxmax() if len(prov) else "—",
+            "distrito": loc.idxmax() if len(loc) else "—"}
+\end{lstlisting}
+El total de conteos se interpreta como suministros-mes, no como cartera única. La media divide energía entre esos conteos ponderados.
+
+\subsection{Huecos temporales}
+\begin{lstlisting}[caption={dashboard/app.py — actualizar, calendario mensual}]
+        calendario = pd.period_range(inicio, fin, freq="M").astype(str)
+        trend = trend.reindex(calendario)
+        trend.index.name = "periodo_txt"
+        trend = trend.reset_index()
+        trend["media_3m"] = trend.consumo_kwh.rolling(3,min_periods=2).mean()
+\end{lstlisting}
+El reindexado explícito devuelve los meses no observados como faltantes. Al no imputarlos con cero, la línea presenta discontinuidades y no atribuye consumo nulo a meses sin archivo.
+
+\subsection{Cross-filter desde el mapa}
+\begin{lstlisting}[caption={dashboard/app.py — click\_mapa}]
+    def click_mapa(click):
+        if not click or not click.get("points"): return None
+        point = click["points"][0]
+        loc = str(point.get("location") or ((point.get("customdata") or [""])[0]))
+        rows = CUBO[CUBO.geo_id == loc]
+        return loc if not rows.empty else None
+\end{lstlisting}
+El callback recupera el código UBIGEO del punto y lo guarda en un componente de estado. El callback principal añade ese código a los filtros y recalcula indicadores, gráficos y tabla.
+
+\subsection{Descarga del agregado filtrado}
+\begin{lstlisting}[caption={dashboard/app.py — descargar}]
+    @app.callback(Output("download-csv", "data"), Input("download-btn", "n_clicks"), State("desde", "value"), State("hasta", "value"), State("provincia", "value"), State("distrito", "value"), State("tarifa", "value"), prevent_initial_call=True)
+    def descargar(_, desde, hasta, provs, dists, tars):
+        inicio, fin = sorted([desde, hasta]); d=CUBO[CUBO.periodo_txt.between(inicio,fin)]
+        if provs: d=d[d.provincia.isin(provs)]
+        if dists: d=d[d.geo_id.isin(dists)]
+        if tars: d=d[d.tarifa.isin(tars)]
+        out=d.groupby(["periodo_txt","ubigeo","provincia","distrito","tarifa"],as_index=False,observed=True)[["suministros","consumo_kwh","facturacion_soles"]].sum()
+        return dcc.send_data_frame(out.to_csv,"consumo_filtrado.csv",index=False,encoding="utf-8-sig")
+\end{lstlisting}
+La exportación entrega una tabla agregada en CSV con los filtros temporales y categóricos que lee este callback.
+
+\section{Catálogo de gráficos y significado}
+Las figuras documentales solicitadas se enumeran aquí. El código fuente configura varias figuras en un solo callback; el catálogo separa cada objeto Plotly para aclarar su lectura.
+\capturadashboard{figuras/01_resumen.png}{Pestaña Resumen.}{fig:resumen}
+\begin{table}[H]\small\centering\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}p{3.0cm}p{2.1cm}Y}\toprule Nombre y tipo & Variables & Filtros & Qué muestra & Lectura para decidir\\\midrule
+Serie resumen (líneas) & x: periodo; y: kWh; eje secundario: soles & Todos & Tendencia total separada entre detalle/agregado & Distinguir cambio de energía de facturación; huecos son faltantes.\\
+Consumo por provincia (barras horizontales) & Provincia, kWh & Todos & Hasta 12 provincias por consumo & Priorizar provincias por volumen, considerando tamaño de cartera.\\\bottomrule\end{tabularx}\caption{Gráficos de Resumen.}\label{tab:resumen-graficos}\end{table}
+
+\capturadashboard{figuras/02_evolucion.png}{Pestaña Evolución.}{fig:evolucion}
+\begin{table}[H]\small\centering\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}p{3.0cm}p{2.1cm}Y}\toprule Nombre y tipo & Variables & Filtros & Qué muestra & Lectura para decidir\\\midrule
+Tendencia y media móvil (líneas) & Mes, consumo kWh, promedio móvil 3 meses & Todos & Serie mensual y variaciones destacadas por MAD robusta & Separar tendencia breve de oscilación mensual; los marcadores son señales exploratorias.\\
+Variación interanual (barras) & Mes, cambio porcentual respecto al mismo mes del año anterior & Todos & Diferencia relativa con rezago de 12 meses & Comparar periodos estacionales equivalentes; N/D en meses sin base válida.\\
+Estacionalidad mes-año (heatmap) & Año, mes, kWh & Todos & Intensidad mensual codificada por color & Identificar patrones estacionales sin rellenar huecos.\\\bottomrule\end{tabularx}\caption{Gráficos de Evolución.}\label{tab:evolucion-graficos}\end{table}
+
+\capturadashboard{figuras/03_mapa.png}{Pestaña Mapa con filtros iniciales.}{fig:mapa}
+\capturadashboard{figuras/03b_mapa_distrito_seleccionado.png}{Mapa después de seleccionar un distrito.}{fig:mapa-seleccion}
+\begin{table}[H]\small\centering\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}p{3.0cm}p{2.1cm}Y}\toprule Nombre y tipo & Variables & Filtros & Qué muestra & Lectura para decidir\\\midrule
+Mapa por polígonos (Scattergeo) & Geometría GeoJSON y color según métrica seleccionada & Filtros globales y métrica territorial & Consumo, promedio, suministros-mes o facturación por distrito & Identificar concentración espacial; al seleccionar distrito se actualizan todas las vistas.\\
+Ranking distrital (barras) & Distrito y consumo kWh; top/bottom 8 & Todos & Extremos de consumo del conjunto filtrado & Detectar territorios de mayor volumen y revisar mínimos con cautela.\\\bottomrule\end{tabularx}\caption{Gráficos de Mapa.}\label{tab:mapa-graficos}\end{table}
+
+\capturadashboard{figuras/04_tarifas_perfiles.png}{Pestaña Tarifas y perfiles.}{fig:tarifas}
+\begin{table}[H]\small\centering\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}p{3.0cm}p{2.1cm}Y}\toprule Nombre y tipo & Variables & Filtros & Qué muestra & Lectura para decidir\\\midrule
+Consumo y facturación por tarifa (barras agrupadas en subgráficos) & Tarifa, consumo kWh y soles & Todos & Totales por categoría tarifaria & Comparar magnitudes, sin confundir diferencias de escala de las dos métricas.\\
+Distribución individual (caja y bigotes) & Tarifa y consumo positivo en escala log & Periodo, provincia, distrito, tarifa; solo detalle & Mediana y rango intercuartílico de muestra & Contrastar forma por tarifa, no estimar totales poblacionales exactos.\\\bottomrule\end{tabularx}\caption{Gráficos de Tarifas y perfiles.}\label{tab:tarifas-graficos}\end{table}
+No se presentan conglomerados asignados: los Parquet no guardan etiquetas K-means. La vista compara distribuciones observadas por tarifa.
+
+\capturadashboard{figuras/05_distribuciones.png}{Pestaña Distribuciones.}{fig:distribuciones}
+\begin{table}[H]\small\centering\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}p{3.0cm}p{2.1cm}Y}\toprule Nombre y tipo & Variables & Filtros & Qué muestra & Lectura para decidir\\\midrule
+Histograma & Consumo positivo (eje log), conteo y tarifa & Todos aplicados al detalle de la muestra & Frecuencia de rangos de consumo individual & Forma sesgada y concentración; la escala log permite ver consumos de distinta magnitud.\\
+Dispersión & x: consumo; y: facturación; color: tarifa & Todos aplicados; hasta 6.000 puntos dibujados & Asociación entre energía y monto facturado & Revisar tendencia y posibles excepciones; la relación no implica causalidad.\\
+Matriz de correlación (heatmap) & Consumo y facturación & Todos aplicados a la muestra & Correlación de Pearson entre dos variables & Resume asociación lineal, sensible a extremos y no causal.\\\bottomrule\end{tabularx}\caption{Gráficos de Distribuciones.}\label{tab:distribuciones-graficos}\end{table}
+
+\capturadashboard{figuras/06_insights.png}{Pestaña Insights.}{fig:insights}
+La pestaña Insights presenta un texto dinámico con territorio y provincia líderes, más advertencias de calidad: meses faltantes, granularidad agregada de 2026, valores negativos, estado de cliente constante e identificador persistente recomendado. No añade una visualización estadística adicional.
+
+\subsection{Ejemplos de lectura verificados}
+Con filtros iniciales sobre las fuentes cargadas, la suma del cubo da \textbf{909.262.707 kWh}, \textbf{14.674.512 suministros-mes}, una media de \textbf{61,96 kWh por suministro-mes} y facturación de \textbf{S/ 1.205.573.762}. El distrito Juliaca registra \textbf{356.538.071,51 kWh}; la ciudad de Puno, \textbf{182.244.404,94 kWh}. Son totales acumulados del periodo disponible, no valores anuales.
+Como ejemplo del mapa, al seleccionar Puno--Huata (UBIGEO 210108), la interfaz recalculó el KPI en \textbf{836.133 kWh}, \textbf{52.256 suministros-mes}, \textbf{16,00 kWh/suministro-mes} y \textbf{S/ 1.317.054}. La selección es un filtro cruzado que afecta las demás vistas.
+
+\section{Interactividad y funcionalidades}
+\begin{itemize}
+\item Filtros compartidos: periodo inicial/final, una o varias provincias, distritos dependientes de la provincia y tarifas múltiples. El panel de filtros se puede desplegar y ocultar.
+\item Botón para restablecer fechas, provincia, distrito, tarifa y selección del mapa.
+\item Click sobre un distrito del mapa para filtrar el resto de la aplicación por UBIGEO.
+\item Tabla inferior con ordenamiento y filtrado nativos; botón para descargar CSV agregado.
+\item Selector de la métrica territorial: kWh, promedio por suministro-mes, suministros-mes o soles.
+\end{itemize}
+
+\section{Decisiones de diseño y tratamiento de datos}
+DuckDB opera sobre los archivos Parquet y reduce los 11,8 millones de registros de detalle a grupos por periodo, ubicación, tarifa y granularidad. La muestra es determinista (reservoir, 60.000 filas, semilla 37) y alimenta únicamente vistas distributivas. La geometría usa identificadores distritales como llaves; para códigos ausentes se intenta el emparejamiento de provincia y distrito tras normalizar tildes, mayúsculas y espacios. El mapa dibuja anillos como polígonos Plotly y así no requiere servicio de teselas ni clave externa. El calendario mensual se completa con valores faltantes, sin imputar ceros. Se distinguen detalle 2023--2025 y agregado 2026 para no mezclar unidades analíticas. Los negativos se conservan a fin de permitir revisar ajustes o créditos.
+
+\section{Limitaciones y trabajo futuro}
+\begin{itemize}
+\item \texttt{codigo\_cliente} es un correlativo, no una llave persistente; el conteo es de suministros-mes y puede repetir una misma unidad a través de meses.
+\item 2026 viene agregado, por lo que no es comparable en análisis distributivos individuales. La muestra 2023--2025 sirve para describir forma, no para reemplazar estadísticos exactos.
+\item No hay etiquetas de K-means guardadas en los Parquet. `estado_cliente` no segmenta porque es NORMAL en todas las filas.
+\item Los faltantes de junio de 2024 y febrero de 2025 impiden una lectura continua o interanual completa. La diferencia mensual solo se calcula si ambos meses existen.
+\item El UBIGEO 211105 queda sin geometría y existen inconsistencias de origen entre códigos y nombres. La tabla conserva datos que el mapa no puede dibujar.
+\item Valores negativos y atípicos requieren revisión operativa antes de atribuirlos a errores o cambios de demanda.
+\item En la revisión visual, el histograma de Distribuciones presentó ejes y leyenda, pero no barras, aunque el texto de la vista informa una muestra positiva de 49.765 observaciones. Debe revisarse esa representación antes de basar la exposición en el histograma.
+\end{itemize}
+Como trabajo futuro se recomienda solicitar un identificador estable de suministro, validar UBIGEO/nombres en origen, persistir etiquetas de perfiles si se requiere segmentación y documentar la semántica del agregado 2026 con el área responsable.
+
+\section{Guía de instalación y ejecución}
+Desde la raíz del repositorio, en PowerShell:
+\begin{lstlisting}[language=bash,caption={Instalación local en Windows}]
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r dashboard\requirements.txt
+python dashboard\app.py
+\end{lstlisting}
+Después se abre \url{http://127.0.0.1:8050}. La primera carga agrega y cachea los datos; deben estar presentes los tres Parquet y \texttt{analisis/peru\_distrital\_simple.geojson}.
+
+\section{Guion para exposición (5--8 minutos)}
+\begin{enumerate}
+\item \textbf{Apertura (40 s).} Presentar el objetivo: integrar consumo, facturación y lectura territorial en una herramienta exploratoria para Electro Puno.
+\item \textbf{Resumen (60 s).} Mostrar los cinco indicadores y la serie. Decir que el conteo son suministros-mes, y que dos huecos representan meses sin archivo, no consumo cero.
+\item \textbf{Evolución (60 s).} Explicar media móvil, variación interanual y mapa de calor. Identificar estacionalidad con precaución por los faltantes.
+\item \textbf{Mapa (75 s).} Cambiar la métrica territorial, seleccionar un distrito y señalar que cambian KPIs, gráficos y tabla. Mencionar el cruce UBIGEO y el caso sin geometría.
+\item \textbf{Tarifas y perfiles (55 s).} Comparar energía y facturación, y mostrar la distribución en escala log. Aclarar que la caja se limita al detalle 2023--2025 y que no se asignan clústeres ausentes.
+\item \textbf{Distribuciones (50 s).} Leer histograma, dispersión y correlación como exploración muestral; no causal ni individual de 2026.
+\item \textbf{Insights y cierre (45 s).} Resumir faltantes, agregación de 2026 y necesidad de identificador persistente. Mostrar la descarga CSV si queda tiempo.
+\end{enumerate}
+\textbf{Preguntas probables.}
+\begin{enumerate}
+\item ¿Por qué no se muestran perfiles K-means? Porque el proceso del dashboard no recibe etiquetas persistidas en los Parquet; asignarlas aquí sería inventar una clasificación.
+\item ¿Qué significa el número de clientes? El dashboard lo rotula suministros-mes: suma conteos por periodo, no personas únicas entre meses.
+\item ¿Cómo se tratan los meses ausentes? Se mantienen como huecos después de reindexar el calendario; no se convierten a cero.
+\item ¿Se pueden comparar distribuciones con 2026? No: el archivo de ese año ya viene agregado. Las distribuciones individuales usan la muestra de detalle 2023--2025.
+\item ¿El mapa incluye todo UBIGEO? No completamente: se conserva un código sin polígono, 211105, tras el intento de cruce alternativo por nombres.
+\end{enumerate}
+
+\section{Conclusiones}
+El dashboard integra filtros y vistas complementarias para resumir el consumo eléctrico y explorar su distribución temporal, geográfica y tarifaria. La agregación DuckDB mantiene la aplicación enfocada en un cubo compacto, mientras que una muestra fija permite examinar la forma del consumo individual. La lectura correcta depende de distinguir detalle de agregado, conteos mensuales de clientes únicos y ausencia de archivo de consumo cero. El mapa facilita el filtro cruzado, aunque su cobertura está condicionada por la calidad de los códigos y geometrías. Estas decisiones hacen que la herramienta sea útil para exploración y exposición, con límites transparentes para orientar su uso ejecutivo.
+
+\end{document}

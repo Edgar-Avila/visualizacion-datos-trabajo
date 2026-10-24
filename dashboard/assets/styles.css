@@ -1,0 +1,14 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+:root{--ink:#17313b;--blue:#176b87;--mint:#64ccc5;--gold:#f4b942;--paper:#f5f8f7;--line:#dfe9e7}
+body{background:var(--paper);color:var(--ink);font-family:'DM Sans','Segoe UI',sans-serif}
+.dashboard-shell{max-width:1500px;padding:28px 34px 12px}
+.hero{padding:18px 2px 26px}.eyebrow{font-weight:700;letter-spacing:.14em;font-size:.72rem;color:var(--blue)}
+.hero-title{font:800 2.5rem Manrope,sans-serif;margin:.35rem 0}.hero-sub{color:#668087;margin:0}
+.coverage-box{background:#e6f3f1;padding:16px 20px;border-radius:15px;display:flex;flex-direction:column;gap:3px;color:var(--blue)}
+.coverage-label,.filter-label{font-size:.72rem;letter-spacing:.08em;font-weight:700;color:#6e8589}.coverage-box small{color:#6e8589}
+.filter-card,.panel-card,.kpi-card{border:1px solid var(--line);border-radius:15px;background:white;box-shadow:0 5px 18px rgba(23,49,59,.035)}
+.filter-card{padding:8px}.filter-label{display:block;margin-bottom:6px}.filter-status{color:#829498;font-size:.8rem}
+.filter-toggle{font-weight:700;letter-spacing:.04em;border-radius:10px;padding:.55rem 1rem}
+.kpi-label{font-size:.85rem;color:#6e8589;font-weight:600}.kpi-value{font:800 clamp(1.05rem,1.45vw,1.65rem) Manrope,sans-serif;margin-top:8px;color:var(--ink);white-space:nowrap}.kpi-unit{font-size:.72rem;color:#829498;margin-top:2px}
+.panel-card{height:100%}.panel-title{font:700 1rem Manrope,sans-serif;margin:0 0 8px}.insight-strip{background:#eaf4f2;border-left:4px solid var(--mint);border-radius:8px;padding:14px 17px;color:#35545d}
+.insight-page{background:white;border:1px solid var(--line);border-radius:15px;line-height:1.7}.insight-page li{margin:.6rem 0}.muted{color:#829498}.tabs .tab{border:0!important;background:transparent!important;font-weight:700;color:#71878c;padding:12px 17px!important}.tabs .tab--selected{color:var(--blue)!important;border-bottom:3px solid var(--mint)!important}.footer{padding:15px 0 22px;color:#829498;font-size:.8rem;border-top:1px solid var(--line)}
